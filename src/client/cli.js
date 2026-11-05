@@ -13,6 +13,7 @@ import { runMcp } from './mcp.js';
 import { runHook } from './hooks.js';
 import { NOT_IN_TEAM } from './tools.js';
 import { briefing, taskBoard, eventLine, byId, byKey } from './format.js';
+import { runTui } from './tui.js';
 
 const HELP = `openhuddle ${VERSION} — multiplayer mode for AI coding agents
 
@@ -409,6 +410,16 @@ const COMMANDS = {
     }
     process.removeListener('SIGINT', stop);
     return 0;
+  },
+
+  async tui(ctx, flags) {
+    const project = needProject(ctx, flags);
+    if (!project) return 1;
+    if (!ctx.real || !ctx.stdin.isTTY || !process.stdout.isTTY) {
+      ctx.err('The terminal command center needs an interactive TTY. Try openhuddle status or openhuddle watch instead.');
+      return 1;
+    }
+    return runTui(apiOf(project));
   },
 
   async dash(ctx, flags) {
