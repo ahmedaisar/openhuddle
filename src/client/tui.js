@@ -1,5 +1,6 @@
 // Terminal-native, read-only coordination views over the existing authenticated hub API.
 import { byId, byKey, clip, eventLine } from './format.js';
+import { executeTuiCommand } from './tui-actions.js';
 
 const ESC = '\x1b[';
 const clean = (value, max = 72) => clip(value ?? '', max).replace(/[\r\n\t]/g, ' ');
@@ -71,7 +72,7 @@ export function renderDashboard(state, events = [], columns = 100, view = 'team'
   for (let i = 0; i < Math.min(visible.length, 12); i++) lines.push('│ ' + pad((i === selected ? '› ' : '  ') + visible[i], inner) + ' │');
   lines.push('├' + bar(inner + 2) + '┤', '│ ' + pad('RECENT ACTIVITY', inner) + ' │');
   for (const line of activity) lines.push('│ ' + pad(line, inner) + ' │');
-  lines.push('├' + bar(inner + 2) + '┤', '│ ' + pad('1 Team  2 Tasks  3 Inbox  4 Huddles  5 Claims  6 Prompt   ↑↓ Select   r Refresh   q Quit', inner) + ' │', '└' + bar(inner + 2) + '┘');
+  lines.push('├' + bar(inner + 2) + '┤', '│ ' + pad('1 Team  2 Tasks  3 Inbox  4 Huddles  5 Claims  6 Prompt   ↑↓ Select   : Command   r Refresh   q Quit', inner) + ' │', '└' + bar(inner + 2) + '┘');
   return lines.join('\n');
 }
 
@@ -85,17 +86,40 @@ export async function runTui(api, { stdin = process.stdin, stdout = process.stdo
   since = recent.last_event_id ?? state.last_event_id ?? since;
   let view = 'team';
   let selected = 0;
+  let commandMode = false;
+  let commandBuffer = '';
+  let notice = '';
   const controller = new AbortController();
-  const draw = () => stdout.write(ESC + '2J' + ESC + 'H' + renderDashboard(state, events, stdout.columns, view, selected));
+  const draw = () => {
+    stdout.write(ESC + '2J' + ESC + 'H' + renderDashboard(state, events, stdout.columns, view, selected));
+    if (commandMode) stdout.write('\n: ' + commandBuffer + '█');
+    else if (notice) stdout.write('\n' + clip(notice, 100));
+  };
   const refresh = async () => { state = await api.get('/api/state'); draw(); };
   const onData = (chunk) => {
     const key = String(chunk);
+    if (commandMode) {
+      if (key === '\r' || key === '\n') {
+        const input = commandBuffer;
+        commandBuffer = '';
+        commandMode = false;
+        executeTuiCommand(api, input).then((result) => {
+          notice = result?.ask_id ? 'Question sent: ' + result.ask_id : 'Command completed.';
+          return refresh();
+        }).catch((error) => { notice = 'Command failed: ' + clip(error.message, 90); draw(); });
+        draw();
+      } else if (key === '\u001b' || key === '\u0003') { commandMode = false; commandBuffer = ''; draw(); }
+      else if (key === '\u007f' || key === '\b') { commandBuffer = commandBuffer.slice(0, -1); draw(); }
+      else if (key.length === 1 && key >= ' ' && key <= '~' && commandBuffer.length < 240) { commandBuffer += key; draw(); }
+      return;
+    }
     if (key === 'q' || key === '\u0003') controller.abort();
+    else if (key === ':') { commandMode = true; commandBuffer = ''; notice = ''; draw(); }
     else if (/^[1-6]$/.test(key)) { view = ['team','tasks','inbox','huddles','claims','prompt'][Number(key) - 1]; selected = 0; draw(); }
     else if (key === '\u001b[A') { selected = Math.max(0, selected - 1); draw(); }
     else if (key === '\u001b[B') { selected = Math.min(11, selected + 1); draw(); }
     else if (key.toLowerCase() === 'r') refresh().catch(() => {});
-    else if (key === '?') stdout.write('\n1-6 switch views · arrows select · r refresh · q quit\n');
+    else if (key === '?') stdout.write('\n: command · 1-6 switch views · arrows select · r refresh · q quit\n');
   };
   stdin.setRawMode(true); stdin.resume(); stdin.on('data', onData);
   const stop = () => controller.abort(); process.once('SIGINT', stop); draw();
