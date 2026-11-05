@@ -72,3 +72,36 @@ export class LocalAgentRuntime {
     for (const session of this.sessions.values()) if (session.status === 'running') this.stop(session.id);
   }
 }
+export async function runAgentInTerminal({ provider, cwd = process.cwd(), pty, stdin = process.stdin, stdout = process.stdout } = {}) {
+  if (!stdin.isTTY || !stdout.isTTY || typeof stdin.setRawMode !== 'function') {
+    throw new Error('Launching an interactive agent requires a real terminal.');
+  }
+  const runtime = new LocalAgentRuntime({ pty });
+  const session = runtime.start({ provider, cwd, cols: stdout.columns, rows: stdout.rows });
+  const terminal = runtime.sessions.get(session.id).terminal;
+  let disposeData = null;
+  let disposeExit = null;
+  const onInput = (chunk) => terminal.write(String(chunk));
+  const onResize = () => runtime.resize(session.id, stdout.columns, stdout.rows);
+  const stop = () => { try { runtime.stop(session.id); } catch {} };
+  const exit = new Promise((resolve) => {
+    disposeData = terminal.onData((data) => stdout.write(data));
+    disposeExit = terminal.onExit(({ exitCode }) => resolve(Number(exitCode) || 0));
+  });
+  stdin.setRawMode(true);
+  stdin.resume();
+  stdin.on('data', onInput);
+  stdout.on('resize', onResize);
+  process.once('SIGTERM', stop);
+  try {
+    return await exit;
+  } finally {
+    stdin.removeListener('data', onInput);
+    stdout.removeListener('resize', onResize);
+    stdin.setRawMode(false);
+    stdin.pause();
+    process.removeListener('SIGTERM', stop);
+    disposeData?.dispose?.();
+    disposeExit?.dispose?.();
+  }
+}
