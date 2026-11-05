@@ -14,6 +14,7 @@ import { runHook } from './hooks.js';
 import { NOT_IN_TEAM } from './tools.js';
 import { briefing, taskBoard, eventLine, byId, byKey } from './format.js';
 import { runTui } from './tui.js';
+import { loadNodePty, runAgentInTerminal } from './agent-runtime.js';
 
 const HELP = `openhuddle ${VERSION} — multiplayer mode for AI coding agents
 
@@ -410,6 +411,18 @@ const COMMANDS = {
     }
     process.removeListener('SIGINT', stop);
     return 0;
+  },
+
+  async agent(ctx, flags, args) {
+    const project = needProject(ctx, flags);
+    if (!project) return 1;
+    const provider = String(args[0] || '').toLowerCase();
+    if (!['claude', 'codex', 'cursor'].includes(provider)) {
+      ctx.err('Usage: openhuddle agent <claude|codex|cursor>');
+      return 1;
+    }
+    const pty = await loadNodePty();
+    return runAgentInTerminal({ provider, cwd: project.root || flags.dir || ctx.cwd, pty });
   },
 
   async tui(ctx, flags) {
