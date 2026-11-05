@@ -49,7 +49,11 @@ export class LocalAgentRuntime {
     return this.describe(session);
   }
 
-  emit(event) { for (const listener of this.listeners) { try { listener(event); } catch {} } }\n\n  onEvent(listener) { this.listeners.add(listener); return () => this.listeners.delete(listener); }\n\n  getOutput(id, limit = 80) {\n    const session = this.sessions.get(String(id));\n    if (!session) throw new Error('Unknown local agent session: ' + id);\n    return session.output.slice(-Math.max(1, Math.min(200, Number(limit) || 80))).join('');\n  }\n\n  describe(session) {
+  emit(event) { for (const listener of this.listeners) { try { listener(event); } catch {} } }
+
+  onEvent(listener) { this.listeners.add(listener); return () => this.listeners.delete(listener); }
+
+  getOutput(id, limit = 80) {\n    const session = this.sessions.get(String(id));\n    if (!session) throw new Error('Unknown local agent session: ' + id);\n    return session.output.slice(-Math.max(1, Math.min(200, Number(limit) || 80))).join('');\n  }\n\n  describe(session) {
     return { id: session.id, provider: session.provider, cwd: session.cwd, status: session.status, startedAt: session.startedAt, endedAt: session.endedAt ?? null, exitCode: session.exitCode };
   }
 
