@@ -5,9 +5,9 @@ export function parseTuiCommand(input) {
   const match = /^(\S+)(?:\s+(\S+))?(?:\s+([\s\S]*))?$/.exec(line);
   if (!match) return null;
   const [, verb, target, rest = ''] = match;
-  if (verb === 'task' && target && /^(take|start|done|release|accept|decline)$/.test(rest.split(/\s+/, 1)[0])) {
-    const [action, ...note] = rest.split(/\s+/);
-    return { route: '/api/task', body: { action, key: target.toUpperCase(), note: note.join(' ') || undefined } };
+  if (verb === 'task' && /^(take|start|done|release|accept|decline)$/.test(target || '') && rest) {
+    const [key, ...note] = rest.split(/\s+/);
+    return { route: '/api/task', body: { action: target, key: key.toUpperCase(), note: note.join(' ') || undefined } };
   }
   if (verb === 'ask' && target && rest) return { route: '/api/ask', body: { to: target, question: rest } };
   if (verb === 'reply' && target && rest) return { route: '/api/reply', body: { ask_id: target.toUpperCase(), answer: rest } };
