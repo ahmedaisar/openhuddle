@@ -5,10 +5,11 @@ import { byId, byKey, clip, eventLine } from './format.js';
 const ESC = '\x1b[';
 const clean = (value, max = 72) => clip(value ?? '', max).replace(/[\r\n\t]/g, ' ');
 const status = (member) => {
-  const value = String(member?.status || member?.state || 'idle').toLowerCase();
-  if (/work|active|busy/.test(value)) return 'WORKING';
+  const detail = member?.status && typeof member.status === 'object' ? member.status : {};
+  const value = String(detail.state || detail.status || detail.text || member?.state || '').toLowerCase();
   if (/wait|block|ask/.test(value)) return 'WAITING';
-  return 'IDLE';
+  if (member?.online && (/work|active|busy/.test(value) || detail.task || detail.current_task)) return 'WORKING';
+  return member?.online ? 'ONLINE' : 'OFFLINE';
 };
 const pad = (value, width) => {
   const text = clean(value, Math.max(0, width));
@@ -33,7 +34,8 @@ export function renderDashboard(state, events = [], columns = 100) {
   ];
   const activity = events.slice(-8).reverse().map((event) => eventLine(event, byId(state?.members), byKey(state?.tasks)));
   const roster = members.map((m) => {
-    const task = tasks.find((t) => t.key === m.task_key || t.assignee_id === m.id);
+    const taskKey = (m.current_tasks || [])[0];
+    const task = tasks.find((t) => t.key === taskKey || t.key === m.task_key || t.assignee_id === m.id);
     return status(m) + '  ' + clean(m.name || m.id, 18) + (task ? ' · ' + clean(task.key, 8) : '');
   });
   const count = Math.max(8, roster.length, activity.length);
