@@ -21,6 +21,8 @@ export class LocalAgentRuntime {
     this.env = env;
     this.now = now;
     this.sessions = new Map();
+    this.listeners = new Set();
+    this.outputLimit = 200;
   }
 
   start({ provider, cwd = process.cwd(), cols = 100, rows = 30, env = {} } = {}) {
@@ -32,13 +34,22 @@ export class LocalAgentRuntime {
       name: 'xterm-256color', cols: Math.max(40, Number(cols) || 100), rows: Math.max(10, Number(rows) || 30),
       cwd: directory, env: { ...this.env, ...env }, encoding: 'utf8',
     });
-    const session = { id: randomUUID().slice(0, 8), provider, cwd: directory, status: 'running', startedAt: this.now(), terminal, exitCode: null };
+    const session = { id: randomUUID().slice(0, 8), provider, cwd: directory, status: 'running', startedAt: this.now(), terminal, exitCode: null, output: [] };
     this.sessions.set(session.id, session);
-    terminal.onExit(({ exitCode }) => { session.status = 'exited'; session.exitCode = exitCode; session.endedAt = this.now(); });
+    terminal.onData?.((data) => {
+      session.output.push(String(data));
+      if (session.output.length > this.outputLimit) session.output.splice(0, session.output.length - this.outputLimit);
+      this.emit({ type: 'output', session: this.describe(session), data: String(data) });
+    });
+    terminal.onExit(({ exitCode }) => {
+      session.status = 'exited'; session.exitCode = exitCode; session.endedAt = this.now();
+      this.emit({ type: 'exit', session: this.describe(session) });
+    });
+    this.emit({ type: 'started', session: this.describe(session) });
     return this.describe(session);
   }
 
-  describe(session) {
+  emit(event) { for (const listener of this.listeners) { try { listener(event); } catch {} } }\n\n  onEvent(listener) { this.listeners.add(listener); return () => this.listeners.delete(listener); }\n\n  getOutput(id, limit = 80) {\n    const session = this.sessions.get(String(id));\n    if (!session) throw new Error('Unknown local agent session: ' + id);\n    return session.output.slice(-Math.max(1, Math.min(200, Number(limit) || 80))).join('');\n  }\n\n  describe(session) {
     return { id: session.id, provider: session.provider, cwd: session.cwd, status: session.status, startedAt: session.startedAt, endedAt: session.endedAt ?? null, exitCode: session.exitCode };
   }
 
@@ -57,7 +68,7 @@ export class LocalAgentRuntime {
   stop(id) {
     const session = this.sessions.get(String(id));
     if (!session) throw new Error('Unknown local agent session: ' + id);
-    if (session.status === 'running') { session.status = 'stopping'; session.terminal.kill(); }
+    if (session.status === 'running') { session.status = 'stopping'; this.emit({ type: 'stopping', session: this.describe(session) }); session.terminal.kill(); }
     return this.describe(session);
   }
 
